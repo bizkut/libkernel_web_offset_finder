@@ -2,13 +2,93 @@
 import sys
 import struct
 import argparse
+import socket
+import time
+import json
+import urllib.request
 from ftplib import FTP
 
 DEFAULT_FTP_PORT = 2121
 DEFAULT_SPRX_PATH = "/system/common/lib/libkernel_web.sprx"
 LOCAL_TEMP_NAME = "libkernel_web.sprx"
 
+GITHUB_API_URL = "https://api.github.com/repos/ps5-payload-dev/ftpsrv/releases/latest"
+FALLBACK_ELF_URL = "https://github.com/ps5-payload-dev/ftpsrv/releases/download/v0.20/ftpsrv-ps5.elf"
+PAYLOAD_PORT = 9021
+
+def is_port_open(host, port, timeout=2):
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
+
+def get_latest_ftpsrv_url():
+    print("[*] Querying GitHub API for the latest ftpsrv release...")
+    try:
+        req = urllib.request.Request(
+            GITHUB_API_URL, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            release_info = json.loads(response.read().decode('utf-8'))
+            
+        for asset in release_info.get("assets", []):
+            if asset.get("name") == "ftpsrv-ps5.elf":
+                download_url = asset.get("browser_download_url")
+                tag_name = release_info.get("tag_name", "latest")
+                print(f"[+] Found latest release asset: {asset.get('name')} ({tag_name})")
+                return download_url
+    except Exception as e:
+        print(f"[*] GitHub API query failed or rate-limited: {e}")
+        print(f"[*] Falling back to default URL: {FALLBACK_ELF_URL}")
+        
+    return FALLBACK_ELF_URL
+
+def bootstrap_ftpsrv(host):
+    print(f"[*] Port {DEFAULT_FTP_PORT} is closed. Attempting to bootstrap ftpsrv automatically...")
+    
+    download_url = get_latest_ftpsrv_url()
+    print(f"[*] Fetching ftpsrv payload from {download_url}...")
+    try:
+        req = urllib.request.Request(
+            download_url, 
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            elf_data = response.read()
+        print(f"[+] Downloaded ftpsrv-ps5.elf ({len(elf_data)} bytes)")
+    except Exception as e:
+        print(f"[-] Failed to download ftpsrv payload: {e}", file=sys.stderr)
+        return False
+
+    print(f"[*] Sending payload to PS5 (injecting to port {PAYLOAD_PORT})...")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(10)
+            s.connect((host, PAYLOAD_PORT))
+            s.sendall(elf_data)
+        print("[+] Payload successfully sent! Waiting 3 seconds for FTP server to spin up...")
+        time.sleep(3)
+        return True
+    except Exception as e:
+        print(f"[-] Failed to inject payload to port {PAYLOAD_PORT}: {e}", file=sys.stderr)
+        return False
+
 def download_via_ftp(host, port, remote_path, local_path):
+    # Check if the FTP port is open
+    if not is_port_open(host, port):
+        # Port is closed, try to bootstrap ftpsrv
+        bootstrapped = bootstrap_ftpsrv(host)
+        if not bootstrapped:
+            print("[-] Aborting: FTP server is not running and auto-bootstrapping failed.", file=sys.stderr)
+            return False
+            
+        # Re-check port after bootstrapping
+        if not is_port_open(host, port):
+            print(f"[-] Aborting: FTP server was injected but port {port} is still closed.", file=sys.stderr)
+            return False
+
     print(f"[*] Connecting to PS5 FTP server at {host}:{port}...")
     try:
         ftp = FTP()
