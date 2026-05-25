@@ -5,6 +5,7 @@ import argparse
 import socket
 import time
 import json
+import re
 import urllib.request
 from ftplib import FTP
 
@@ -94,8 +95,8 @@ def download_via_ftp(host, port, remote_path, local_path):
         ftp = FTP()
         ftp.connect(host, port, timeout=10)
         ftp.login()
-        print(f"[+] Connected! Downloading {remote_path}...")
         
+        print(f"[+] Connected! Downloading {remote_path}...")
         with open(local_path, 'wb') as f:
             ftp.retrbinary(f"RETR {remote_path}", f.write)
             
@@ -106,7 +107,7 @@ def download_via_ftp(host, port, remote_path, local_path):
         print(f"[-] FTP Error: {e}", file=sys.stderr)
         return False
 
-def check_elf(filepath):
+def check_elf(filepath, fw_version=None):
     print(f"\n[*] Analyzing ELF structure: {filepath}...")
     try:
         with open(filepath, 'rb') as f:
@@ -150,16 +151,7 @@ def check_elf(filepath):
         if vaddr is not None:
             results['CLEAN_SYSCALL_WRAPPER'] = vaddr
 
-    # 2. Search for KQUEUEEX_WRAPPER
-    # Pattern: mov rax, 0x8D; mov r10, rcx; syscall -> 48 C7 C0 8D 00 00 00 49 89 CA 0F 05
-    pattern_kq = b'\x48\xC7\xC0\x8D\x00\x00\x00\x49\x89\xCA\x0F\x05'
-    idx = data.find(pattern_kq)
-    if idx != -1:
-        vaddr = get_vaddr(idx)
-        if vaddr is not None:
-            results['KQUEUEEX_WRAPPER'] = vaddr
-
-    # 3. Search for GETTIMEOFDAY
+    # 2. Search for GETTIMEOFDAY
     # Pattern: mov rax, 0x74; mov r10, rcx; syscall -> 48 C7 C0 74 00 00 00 49 89 CA 0F 05
     pattern_gtod = b'\x48\xC7\xC0\x74\x00\x00\x00\x49\x89\xCA\x0F\x05'
     idx = data.find(pattern_gtod)
@@ -168,13 +160,26 @@ def check_elf(filepath):
         if vaddr is not None:
             results['GETTIMEOFDAY'] = vaddr
 
+    # Try to extract version from filename if not explicitly provided
+    if fw_version is None:
+        match = re.search(r"(\d+\.\d+)", filepath)
+        if match:
+            fw_version = match.group(1)
+
     # Print final structured results
     print("\n" + "="*50)
     print("           🎯 PS5 LIBKERNEL CLEAN BURN OFFSETS")
     print("="*50)
     
+    if fw_version:
+        print(f"  PlayStation 5 Firmware : {fw_version}")
+    else:
+        print(f"  PlayStation 5 Firmware : [Please specify firmware when submitting]")
+        
+    print("-"*50)
+        
     missing = []
-    for key in ['CLEAN_SYSCALL_WRAPPER', 'KQUEUEEX_WRAPPER', 'GETTIMEOFDAY']:
+    for key in ['CLEAN_SYSCALL_WRAPPER', 'GETTIMEOFDAY']:
         if key in results:
             print(f"  {key:<22} : 0x{results[key]:X}n")
         else:
@@ -184,6 +189,9 @@ def check_elf(filepath):
     print("="*50)
     if not missing:
         print("\n[+] Success! Copy the lines above to submit them.")
+        print("[-] Report offsets here: https://github.com/bizkut/P2JB-Y2JB-Porting/issues")
+        if not fw_version:
+            print("[*] Don't forget to include the target firmware version!")
     else:
         print(f"\n[-] Warning: Could not locate offsets for: {', '.join(missing)}")
 
@@ -208,15 +216,18 @@ Examples:
     parser.add_argument("--ftp", metavar="IP", help="PS5 Console IP Address to download decrypted SPRX via FTP")
     parser.add_argument("--port", type=int, default=DEFAULT_FTP_PORT, help=f"FTP Port (default: {DEFAULT_FTP_PORT})")
     parser.add_argument("--remote-path", default=DEFAULT_SPRX_PATH, help=f"Remote path to SPRX (default: {DEFAULT_SPRX_PATH})")
+    parser.add_argument("--fw", help="Explicitly set the PlayStation 5 firmware version")
     
     args = parser.parse_args()
+    
+    fw_version = args.fw
     
     if args.ftp:
         success = download_via_ftp(args.ftp, args.port, args.remote_path, LOCAL_TEMP_NAME)
         if success:
-            check_elf(LOCAL_TEMP_NAME)
+            check_elf(LOCAL_TEMP_NAME, fw_version=fw_version)
     elif args.file:
-        check_elf(args.file)
+        check_elf(args.file, fw_version=fw_version)
     else:
         parser.print_help()
 

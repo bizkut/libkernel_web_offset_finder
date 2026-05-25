@@ -1,4 +1,4 @@
-# 🎯 PS5 libkernel_web Clean Burn Offset Finder
+# 🎯 PS5 Offset Finder
 
 A utility to automate downloading and extracting clean burn system call offsets from the decrypted `libkernel_web.sprx` binary of a PlayStation 5 console. 
 
@@ -18,6 +18,9 @@ These offsets enable jailbreaks like **`p2jb-y2jb`** to use clean, branch-free a
 ## 🛠️ Usage
 
 ### Option 1: Automatic Download via FTP (Recommended)
+
+> [!WARNING]  
+> **A Jailbroken PS5 is required** for this option. Your console must already have run the exploit successfully and be listening on port `9021` (payload port) or running the **`ftpsrv`** payload on port `2121` to allow module extraction.
 
 1. Make sure your PS5 is on the same local network as your PC.
 2. Launch the payload listener (port `9021`) on your PS5 (or launch the **`ftpsrv`** payload directly).
@@ -69,7 +72,6 @@ python check_offsets.py libkernel_web.sprx
            🎯 PS5 LIBKERNEL CLEAN BURN OFFSETS
 ==================================================
   CLEAN_SYSCALL_WRAPPER  : 0x1A8D7n
-  KQUEUEEX_WRAPPER       : 0x1BDD0n
   GETTIMEOFDAY           : 0x1D150n
 ==================================================
 
@@ -83,4 +85,5 @@ python check_offsets.py libkernel_web.sprx
 If your console's firmware version is not currently present in the exploit's registry:
 1. Run this tool on your console.
 2. Copy the resulting offsets.
-3. Open a GitHub Issue or submit a Pull Request containing your **Firmware Version** and the **Three Offset Values**.
+3. Open a GitHub Issue containing your **Firmware Version** and the **Two Offset Values** directly here:
+   👉 **[Submit Offsets Here](https://github.com/bizkut/P2JB-Y2JB-Porting/issues)**
